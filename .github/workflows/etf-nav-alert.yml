@@ -30,6 +30,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WATCHLIST: ${{ vars.WATCHLIST }}
         run: python etf_nav_alert.py --threshold 0.5 --day-drop 2
 
       # Keeps a running history of alerts across runs (each run starts with
