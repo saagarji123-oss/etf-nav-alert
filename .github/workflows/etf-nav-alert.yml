@@ -31,11 +31,7 @@ jobs:
   env:
     TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
     TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-  run: |
-    python etf_nav_alert.py \
-      --threshold 0.5 \
-      --day-drop 2 \
-      --symbols NIFTYBEES,GOLDBEES,BANKBEES
+ run: python etf_nav_alert.py --threshold 0.5 --day-drop 2 --symbols NIFTYBEES,GOLDBEES,BANKBEES
 
   
       # Keeps a running history of alerts across runs (each run starts with
