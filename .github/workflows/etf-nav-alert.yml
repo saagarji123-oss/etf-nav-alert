@@ -1,0 +1,44 @@
+name: ETF NAV / Day-Drop Alert
+
+# Runs automatically on a schedule (no PC/server of yours required) and can
+# also be triggered manually from the Actions tab any time via "Run workflow".
+#
+# Cron times are in UTC. NSE market hours are 9:15-15:30 IST = 3:45-10:00 UTC.
+# GitHub's scheduler won't run more often than every 5 minutes, and during
+# busy periods it can be a few minutes late - fine for this use case.
+on:
+  schedule:
+    - cron: "*/15 3-9 * * 1-5"   # every 15 min, 3:45am-10:00am UTC, Mon-Fri
+  workflow_dispatch: {}          # lets you click "Run workflow" manually to test
+
+jobs:
+  check-etfs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run ETF alert check
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WATCHLIST: ${{ vars.WATCHLIST }}
+        run: python etf_nav_alert.py --threshold 0.5 --day-drop 2
+
+      # Keeps a running history of alerts across runs (each run starts with
+      # a fresh checkout, so we commit the CSV log back to the repo).
+      - name: Commit updated log
+        run: |
+          git config user.name "etf-alert-bot"
+          git config user.email "actions@github.com"
+          git add etf_nav_log.csv || true
+          git diff --cached --quiet || git commit -m "Update ETF alert log"
+          git push || true
