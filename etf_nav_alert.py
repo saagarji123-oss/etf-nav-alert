@@ -68,7 +68,13 @@ except ImportError:
 # Actions secrets named TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID (recommended
 # when running on GitHub Actions rather than your own PC).
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+# Multiple people: put a comma-separated list of chat IDs, e.g. "111111,222222"
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+# Only these ETF symbols will be checked. Leave empty to check ALL NSE ETFs.
+# Use the exact NSE trading symbol, e.g. NIFTYBEES, GOLDBEES, BANKBEES.
+# Can also be set via WATCHLIST env var (comma-separated) or --symbols on the CLI.
+WATCHLIST = [s.strip().upper() for s in os.environ.get("WATCHLIST", "").split(",") if s.strip()]
 
 # NOTE ON FIELD NAMES: NSE's JSON key names for LTP/NAV/day-change have shifted
 # over the years. This script tries a list of known candidate names (below).
@@ -177,14 +183,17 @@ def notify_desktop(title: str, message: str):
     print(f"[NOTIFY] {title}: {message}")
 
 
-def notify_telegram(token: str, chat_id: str, message: str):
-    if not token or not chat_id:
+def notify_telegram(token: str, chat_ids: str, message: str):
+    """chat_ids can be a single ID or a comma-separated list, e.g. '111111,222222'."""
+    if not token or not chat_ids:
         return
+    ids = [c.strip() for c in str(chat_ids).split(",") if c.strip()]
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    try:
-        requests.post(url, data={"chat_id": chat_id, "text": message}, timeout=10)
-    except requests.RequestException as e:
-        print(f"[Telegram send failed] {e}")
+    for chat_id in ids:
+        try:
+            requests.post(url, data={"chat_id": chat_id, "text": message}, timeout=10)
+        except requests.RequestException as e:
+            print(f"[Telegram send failed for {chat_id}] {e}")
 
 
 def log_to_csv(rows: list, reason_key: str = "discount_pct"):
@@ -205,11 +214,15 @@ def run_once(
     day_drop_pct: float,
     telegram_token: str = "",
     telegram_chat_id: str = "",
+    watchlist: list = None,
     debug: bool = False,
 ):
     session = get_session()
     raw_json = fetch_etf_json(session)
     all_rows = parse_rows(raw_json, debug=debug)
+
+    if watchlist:
+        all_rows = [r for r in all_rows if r["symbol"].upper() in watchlist]
 
     below_nav = [dict(r, reason="below_nav") for r in all_rows if r["discount_pct"] <= -abs(threshold_pct)]
 
@@ -226,8 +239,9 @@ def run_once(
 
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"\n=== ETF Check @ {ts} ===")
+    watch_note = f" (watchlist: {len(watchlist)} symbols)" if watchlist else " (all NSE ETFs)"
     print(
-        f"Scanned: {len(all_rows)} | Below NAV (>= {threshold_pct}% discount): {len(below_nav)} "
+        f"Scanned: {len(all_rows)}{watch_note} | Below NAV (>= {threshold_pct}% discount): {len(below_nav)} "
         f"| Down >= {day_drop_pct}% today: {len(day_drops)}"
     )
 
@@ -269,12 +283,15 @@ def main():
     parser.add_argument("--threshold", type=float, default=0.0, help="Minimum discount %% to trigger NAV alert (default 0 = any discount)")
     parser.add_argument("--day-drop", type=float, default=0.0, help="Alert if an ETF is down this %% or more today (default 0 = disabled)")
     parser.add_argument("--telegram-token", type=str, default=TELEGRAM_BOT_TOKEN, help="Telegram bot token for mobile alerts")
-    parser.add_argument("--telegram-chat-id", type=str, default=TELEGRAM_CHAT_ID, help="Telegram chat ID for mobile alerts")
+    parser.add_argument("--telegram-chat-id", type=str, default=TELEGRAM_CHAT_ID, help="Telegram chat ID(s), comma-separated for multiple people")
+    parser.add_argument("--symbols", type=str, default="", help="Comma-separated NSE symbols to watch, e.g. NIFTYBEES,GOLDBEES (default: all ETFs)")
     parser.add_argument("--debug", action="store_true", help="Print raw NSE field names once, for troubleshooting")
     args = parser.parse_args()
 
+    watchlist = [s.strip().upper() for s in args.symbols.split(",") if s.strip()] or WATCHLIST
+
     if not args.loop:
-        run_once(args.threshold, args.day_drop, args.telegram_token, args.telegram_chat_id, debug=args.debug)
+        run_once(args.threshold, args.day_drop, args.telegram_token, args.telegram_chat_id, watchlist=watchlist, debug=args.debug)
         return
 
     print("Running in loop mode. Ctrl+C to stop.")
@@ -283,7 +300,7 @@ def main():
             now = datetime.datetime.now()
             if market_is_open(now):
                 try:
-                    run_once(args.threshold, args.day_drop, args.telegram_token, args.telegram_chat_id, debug=args.debug)
+                    run_once(args.threshold, args.day_drop, args.telegram_token, args.telegram_chat_id, watchlist=watchlist, debug=args.debug)
                 except requests.RequestException as e:
                     print(f"Network/NSE error: {e}")
             else:
